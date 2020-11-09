@@ -2,8 +2,9 @@
 # coding=utf-8
 # "DATASHEET": http://cl.ly/ekot
 # https://gist.github.com/kadamski/92653913a53baf9dd1a8
+# V1.0 2020.11.08
 from __future__ import print_function
-import serial, struct, sys, time, subprocess, requests, bme280
+import serial, struct, sys, time, subprocess, requests, bme280, Adafruit_DHT
 
 DEBUG = 0
 CMD_MODE = 2
@@ -101,6 +102,8 @@ def pub_mqtt(jsonrow):
     with subprocess.Popen(cmd, shell=False, bufsize=0, stdin=subprocess.PIPE).stdin as f:
         json.dump(jsonrow, f)
 
+key = open("/boot/key","r").read()
+
 
 if __name__ == "__main__":
 #    while True:
@@ -130,15 +133,33 @@ if __name__ == "__main__":
               pm10.append(values[1])
         print(*pm25)
         print(*pm10)
-        t,p,rh = bme280.readBME280All()
-        print ("Temperature : ", t, "C")
-        print ("Pressure : ", p, "hPa")
-        print ("Humidity : ", rh, "%")
+        post_data = {'pm2' : round(sum(pm25)/len(pm25)), 'pm10' : round(sum(pm10)/len(pm10)), 'date' : time.time(), 'station_id' : '273'}
 
-	post_data = {'pm2' : round(sum(pm25)/len(pm25)), 'pm10' : round(sum(pm10)/len(pm10)), 'temperature' : t,  'date' : time.time(), 'station_id' : '274'}
-	response = requests.post('http://teszt.metnet.hu/api/data', data = post_data)
-#        print(pm25_avg, pm25_max, pm10_avg,pm10_max)
-	print(post_data)
+        try:
+          t1,p,rh = bme280.readBME280All()
+          print ("I2C Interface ")
+          print ("Temperature : ", t1, "C")
+          print ("Pressure : ", p, "hPa")
+          print ("Humidity : ", rh, "%")
+          post_data['Pressure']=p
+        except:
+          print("There is no i2c temperature")
+
+        try:
+            rh, t = Adafruit_DHT.read_retry(Adafruit_DHT.DHT22, 4)
+            post_data['temperature']=round(t,1)
+            post_data['humidity']=round(rh,1)
+            print (" DHT22: ")
+            print ("Temperature : ", round(t,1), "C")
+            print ("Humidity : ", round(rh,1), "%")
+        except:
+            print("There is no DHT22 data...")
+            if (t1<>''):
+                post_data['temperature']=t1
+
+        post_data['X-Device-Token']=key
+        response = requests.post('https://www.metnet.hu/api/data', data = post_data)
+        print(post_data)
         print(response.text)
         cmd_set_sleep(1)
         ser.close()
